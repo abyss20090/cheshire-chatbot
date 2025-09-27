@@ -1,0 +1,42 @@
+name: Refresh KB
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 8 1 * *'   # 每月1日 08:00 UTC
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Build KB (crawl & extract)
+        run: |
+          python build_kb.py
+          ls -lh dist
+      - name: Clone Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ secrets.HF_SPACE }}
+        run: |
+          test -n "$HF_TOKEN" || (echo "Missing HF_TOKEN secret" && exit 1)
+          test -n "$HF_SPACE" || (echo "Missing HF_SPACE secret" && exit 1)
+          git clone https://__token__:${HF_TOKEN}@huggingface.co/${HF_SPACE} space_repo
+      - name: Copy TXT into Space /sources
+        run: |
+          rm -rf space_repo/sources
+          mkdir -p space_repo/sources
+          cp dist/*.txt space_repo/sources/
+          cd space_repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "KB refresh: $(date -u +'%Y-%m-%d %H:%M:%S')"
+          git push
